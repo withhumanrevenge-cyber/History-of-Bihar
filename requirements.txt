@@ -1,0 +1,70 @@
+# Web Framework & API
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.0
+pydantic-settings>=2.2.0
+
+# Frontend & Interactive AI UI (Python Stack)
+streamlit>=1.32.0
+streamlit-chat>=0.1.1
+streamlit-option-menu>=0.3.12
+chainlit>=1.0.400
+gradio>=4.21.0
+nicegui>=1.4.18
+
+# AI Orchestration & Frameworks
+langchain>=0.1.12
+langchain-community>=0.0.28
+langchain-core>=0.1.30
+langchain-openai>=0.0.8
+langchain-chroma>=0.1.0
+langchain-text-splitters>=0.0.1
+langgraph>=0.0.30
+
+# LlamaIndex Ecosystem (RAG Engine)
+llama-index-core>=0.10.20
+llama-index-embeddings-openai>=0.1.6
+llama-index-vector-stores-chroma>=0.1.4
+llama-index-readers-file>=0.1.9
+
+# Model Providers & Embedding APIs
+openai>=1.14.0
+anthropic>=0.20.0
+google-generativeai>=0.4.1
+huggingface-hub>=0.21.4
+cohere>=5.1.0
+
+# Vector Databases & Hybrid Search
+chromadb>=0.4.24
+faiss-cpu>=1.8.0
+qdrant-client>=1.8.0
+sentence-transformers>=2.5.1
+flashrank>=0.2.0
+
+# Document Ingestion, Parsing & Chunking (Advanced RAG)
+pypdf>=4.1.0
+pdfplumber>=0.10.4
+PyMuPDF>=1.23.26
+python-docx>=1.1.0
+beautifulsoup4>=4.12.3
+unstructured>=0.12.5
+pandas>=2.2.1
+numpy>=1.26.4
+tiktoken>=0.6.0
+
+# RAG Evaluation & Observability
+ragas>=0.1.5
+langsmith>=0.1.18
+
+# Database & Storage
+sqlalchemy>=2.0.28
+alembic>=1.13.1
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.9
+
+# Security & Utilities
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+python-dotenv>=1.0.1
+httpx>=0.27.0
+aiofiles>=23.2.1

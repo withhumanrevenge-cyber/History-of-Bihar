@@ -1,0 +1,18 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local configuration and runtime output
+.env
+*.log
+.chroma_db/
+
+# Source documents are supplied locally; some exceed GitHub's file limit
+data/*.pdf
