@@ -331,7 +331,7 @@ function Header() {
         rel="noreferrer"
         className="rounded-full border border-border bg-bg-elev px-3 py-1 text-xs font-medium text-text-muted transition-colors duration-200 hover:border-accent hover:text-accent"
       >
-        Powered by HuggingFace
+        Powered by HuggingFace/GroQ
       </a>
     </header>
   );

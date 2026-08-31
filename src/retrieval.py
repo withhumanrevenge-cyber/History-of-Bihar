@@ -21,7 +21,7 @@ def hybrid_search(query, semantic_retriever, bm25_retriever, reranker, k=5):
     return [d for _, d in ranked[:k]]
 
 
-def create_retriever(vectorstore, chunks, k=5, fetch_k=20):
+def create_retriever(vectorstore, chunks, k=3, fetch_k=9):
     semantic = vectorstore.as_retriever(search_kwargs={"k": fetch_k})
     bm25 = BM25Retriever.from_documents(chunks)
     bm25.k = fetch_k

@@ -2,9 +2,7 @@ from langchain_core.documents import Document
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 
-from src.retrieval import create_retriever
-from src.llm import get_llm
-from src.chain import build_chain
+from src.agent import build_agent
 
 
 def load_vectorstore():
@@ -24,21 +22,8 @@ def load_chunks_from_chroma(vectorstore):
     ]
 
 
-def build_rag():
-    vectorstore = load_vectorstore()
-    chunks = load_chunks_from_chroma(vectorstore)
-    if not chunks:
-        raise RuntimeError(
-            "Chroma is empty. Run `python ingest.py` first to index the PDFs."
-        )
-
-    retriever = create_retriever(vectorstore, chunks, k=5, fetch_k=20)
-    llm = get_llm()
-    return build_chain(retriever, llm)
-
-
 def main():
-    rag = build_rag()
+    agent, _chunks = build_agent()
     print("Ask me about Legends of Bihar (type 'exit' to quit).\n")
 
     while True:
@@ -53,7 +38,8 @@ def main():
         if question.lower() in {"exit", "quit"}:
             break
 
-        answer = rag.invoke(question)
+        result = agent.invoke({"messages": [{"role": "user", "content": question}]})
+        answer = result["messages"][-1].content
         print(f"\nA: {answer}\n")
 
 

@@ -10,7 +10,15 @@ DATA_DIR = "data"
 pdf_paths = [
     os.path.join(DATA_DIR, "bihar01.pdf"),
     os.path.join(DATA_DIR, "bihar02.pdf"),
-    os.path.join(DATA_DIR, "bihar03.pdf")
+    os.path.join(DATA_DIR, "bihar03.pdf"),
+    os.path.join(DATA_DIR, "bihar04.pdf"),
+    os.path.join(DATA_DIR, "bihar05.pdf"),
+    os.path.join(DATA_DIR, "bihar06.pdf"),
+    os.path.join(DATA_DIR, "bihar07.pdf"),
+    os.path.join(DATA_DIR, "bihar08.pdf"),
+    os.path.join(DATA_DIR, "bihar09.pdf"),
+    os.path.join(DATA_DIR, "bihar10.pdf"),
+    os.path.join(DATA_DIR, "bihar11.pdf"),
 ]
 
 docs = []

@@ -1,114 +1,187 @@
-# History of Bihar
+# Bihar Insights
 
-History of Bihar is a citation-aware document question-answering application for exploring Bihar's history and public reports. It combines a FastAPI backend, a Next.js interface, local PDF ingestion, hybrid retrieval, and a streaming language-model response.
+Bihar Insights is a citation-aware, document-grounded Q&A app for Bihar’s public reports and historical PDFs. It combines:
 
-Answers are grounded in the indexed documents and include the source filename, page number, and excerpt used for retrieval.
+- a FastAPI backend
+- Chroma-based vector retrieval
+- hybrid semantic + keyword search
+- tool-calling agent logic
+- a Next.js frontend
+- citation checks against the indexed PDF pages
 
-## Highlights
+The goal is simple: answer questions using only the indexed Bihar documents and cite the supporting source pages inline.
 
-- Hybrid search using Chroma semantic retrieval and BM25 keyword retrieval.
-- Cross-encoder reranking for the final context selection.
-- Streaming answers over Server-Sent Events (SSE).
-- Source citations and excerpts displayed with every response.
-- Hugging Face Router support with a local-model fallback.
-- Responsive Next.js chat interface with health status and suggested questions.
+## Why this project exists
 
-## Metrics
+This app is a side project of mine where i was experimenting and exploring with rag architectures, guardrails, middlewares and better llms for generation , i created the frontend with help of claude and other resources that i have (not so fond of frontend work). explore the codebase or application , i would love any feedback .
 
-| Metric | Current value |
-| --- | ---: |
-| Source PDFs | 3 |
-| Local source corpus | ~541 MiB |
-| Retrieval candidates | 20 |
-| Reranked context documents | 5 |
-| Chunk size / overlap | 1,000 / 200 characters |
-| API routes | 2 |
-| Stream event types | 4 |
+you can asks question like:
 
-The repository does not currently include a labeled evaluation set or benchmark run. Accuracy, faithfulness, retrieval recall, and response latency should be measured with a representative question set before being reported as quality metrics.
+- agriculture
+- welfare and government schemes
+- literacy and demographics
+- history and geography
+- public reports and statistical summaries
 
-## Architecture
+It reduces hallucinations by:
+
+- retrieving relevant passages before answering
+- forcing the model to answer only from indexed sources
+- validating citations against the document index
+- refusing unsupported answers when evidence is missing
+
+## Architecture overview
 
 ```text
-PDF files in data/
-				|
-				v
-	PyMuPDF + recursive chunking
-				|
-				v
- Chroma embeddings index
-				|
-				+--> semantic retrieval --+
-				+--> BM25 retrieval ------+--> deduplicate --> cross-encoder rerank
-																												|
-																												v
-																						 grounded prompt + LLM stream
-																												|
-																												v
-																							FastAPI SSE --> Next.js UI
+PDF reports in data/
+    |
+    v
+PyMuPDF loader
+    |
+    v
+Recursive chunking
+    |
+    v
+Sentence-transformer embeddings -> Chroma vector store
+    |
+    +--> semantic retrieval
+    +--> BM25 retrieval
+            |
+            v
+      deduplicate + rerank
+            |
+            v
+  LangGraph tool-calling agent
+            |
+            v
+    LLM answer generation
+            |
+            v
+     FastAPI SSE API
+            |
+            v
+       Next.js frontend
 ```
 
-## Project layout
+## File layout
 
 ```text
 src/
-	api.py          FastAPI application and SSE endpoints
-	chain.py        Grounded prompt and RAG chain helpers
-	config.py       Environment configuration
-	ingest.py       PDF loading, chunking, embeddings, and indexing
-	llm.py          Hugging Face Router and local model setup
-	main.py         CLI RAG runner
-	retrieval.py    Hybrid retrieval and reranking
+  agent.py         tool-calling agent and guardrails
+  api.py           FastAPI endpoints and SSE streaming
+  config.py        environment/config helpers
+  ingest.py        PDF ingestion, chunking, and Chroma indexing
+  llm.py           provider selection for model backend
+  main.py          CLI runner for local testing
+  retrieval.py     search and reranking logic
+
 frontend/
-	app/            Next.js user interface
-data/             Local PDF files, supplied separately
+  app/             Next.js frontend
+  package.json     frontend dependencies
+
+public data/
+  data/*.pdf       Bihar report PDFs
+
+.chroma_db/
+  generated local vector index
 ```
+
+## Model setup
+
+The app chooses the generation model in this order:
+
+1. Groq, if `GROQ_API_KEY` is set
+2. Hugging Face Router, if `HF_TOKEN` is set
+3. Llama API, if `LLAMA_API_KEY` is set
+4. Local fallback model, only for local development when no cloud provider is configured
+
+The retrieval embedding model is:
+
+- `sentence-transformers/all-MiniLM-L6-v2`
+
+This embedding model is separate from the generation model and is used for semantic search in the vector database.
 
 ## Requirements
 
-- Python 3.10-3.13. Python 3.10 is recommended for the current `onnxruntime` dependency.
-- [`uv`](https://docs.astral.sh/uv/)
-- Node.js 20 or newer and npm
-- A Hugging Face access token for hosted generation, or enough local resources for the fallback model
+- Python 3.10+
+- `uv`
+- Node.js 20+
+- npm
 
-## Setup
+## Quick start
 
-From the repository root:
+### 1) Install dependencies
 
 ```powershell
 uv sync
 ```
 
-Create a `.env` file:
+### 2) Create `.env`
+
+For local development, keep cloud keys empty unless you want to use a hosted provider.
+
+Example local setup:
 
 ```env
-HF_TOKEN=your_huggingface_token
+APP_ENV=development
+# keep cloud keys blank for now
+```
+
+Example Groq setup:
+
+```env
+APP_ENV=development
+GROQ_API_KEY=your_key_here
+GROQ_CHAT_MODEL=llama-3.3-70b-versatile
+```
+
+Example Hugging Face setup:
+
+```env
+APP_ENV=development
+HF_TOKEN=your_hf_token
 HF_CHAT_MODEL=meta-llama/Llama-3.3-70B-Instruct
 ```
 
-Place the source files in `data/`:
+Example Llama API setup:
 
-```text
-data/bihar01.pdf
-data/bihar02.pdf
-data/bihar03.pdf
+```env
+APP_ENV=development
+LLAMA_API_KEY=your_key_here
+LLAMA_CHAT_MODEL=llama-3.3-70b-instruct
 ```
 
-The PDFs are intentionally excluded from Git because the collection includes files larger than GitHub's 100 MB file limit.
+For production, do not rely on local fallback alone. Use a valid cloud key or a properly configured local runtime.
 
-Build the local index:
+### 3) Add PDFs
+
+Put the Bihar report files in `data/`.
+
+Example:
+
+```text
+data/hola.pdf
+data/mola.pdf
+data/cocacola.pdf
+```
+
+### 4) Build the Chroma index
 
 ```powershell
 uv run python src/ingest.py
 ```
 
-Start the backend in one terminal:
+This loads the PDFs, splits them into chunks, embeds them, and stores them in `.chroma_db/`.
+
+### 5) Start the backend
 
 ```powershell
 uv run uvicorn src.api:app --host 127.0.0.1 --port 8001
 ```
 
-Start the frontend in a second terminal:
+### 6) Start the frontend
+
+Open a second terminal:
 
 ```powershell
 cd frontend
@@ -116,7 +189,11 @@ npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). The Next.js proxy forwards `/api/*` requests to the backend on port `8001`. Set `NEXT_PUBLIC_API_ORIGIN` when using another backend URL.
+Then open:
+
+```text
+http://localhost:3000
+```
 
 ## API
 
@@ -126,51 +203,113 @@ Open [http://localhost:3000](http://localhost:3000). The Next.js proxy forwards 
 GET /api/health
 ```
 
-Example response:
-
-```json
-{"status":"ok","ready":true}
-```
-
-### Ask a question
+### Chat endpoint
 
 ```http
 POST /api/chat
 Content-Type: application/json
-
-{"question":"What role did Bihar play in the Revolt of 1857?"}
 ```
 
-The response uses `text/event-stream` and emits these events:
+Example request:
 
-- `sources`: retrieved documents, pages, and excerpts
+```json
+{"question":"What welfare schemes are mentioned in the reports?"}
+```
+
+The app streams responses over SSE and emits events such as:
+
+- `sources`: retrieved passages with source and page info
 - `token`: streamed answer text
-- `error`: an error message, when applicable
-- `done`: indicates that streaming is complete
+- `usage`: token usage metadata if the provider exposes it
+- `notice`: groundedness or guardrail notices
+- `error`: generation errors
+- `done`: stream completion
 
-## Configuration
+## Grounding and citations
 
-The hosted model and generation parameters are configured in `src/llm.py`:
+The app is designed to answer only from the retrieved document context.
 
-- `HF_CHAT_MODEL`: Hugging Face Router model name
-- `temperature=0.3`: response variation
-- `max_tokens=1200`: maximum generated answer length
-- `top_p=0.9`: sampling control
+Behavior includes:
 
-For factual answers, keep temperature low and require citations from the provided context.
+- inline citation formatting
+- verification of source/page pairs against the index
+- refusal or fallback answers when the retrieved evidence is weak or missing
 
-## CLI mode
+Example citation format:
 
-After indexing, run the terminal interface with:
+```text
+The literacy rate rose over the reported period [source: report.pdf, page 24].
+```
+
+## Guardrails included
+
+The project includes a basic safety layer:
+
+- question length cap
+- rate limiting
+- input injection detection
+- groundedness checks
+- citation verification
+- no-context fallback for unsupported answers
+
+## Troubleshooting
+
+### 401 / no API key provided
+
+This usually means the app is trying to call a cloud provider but no valid API key is available in the active environment.
+
+Check which keys are set:
 
 ```powershell
-uv run python src/main.py
+uv run python -c "import os; print('GROQ', bool((os.getenv('GROQ_API_KEY') or '').strip())); print('HF', bool((os.getenv('HF_TOKEN') or '').strip())); print('LLAMA', bool((os.getenv('LLAMA_API_KEY') or '').strip()))"
 ```
 
-Type `exit` or `quit` to stop.
+If all are empty, the app will fall back to the local model path for development.
 
-## Runtime files and troubleshooting
+### Local fallback fails to load
 
-- `.chroma_db/` is generated locally and can be rebuilt by running the ingestion command again.
-- `.env`, virtual environments, logs, and source PDFs are excluded from Git.
-- If port `8001` is already in use, stop the existing Uvicorn process or choose another port and set `NEXT_PUBLIC_API_ORIGIN` for the frontend.
+This can happen if the fallback model is not a compatible instruct/chat model for the pipeline used by the app.
+
+Common fixes:
+
+- use a valid cloud provider key
+- switch to a proper instruct model or Ollama-based local Llama
+- avoid relying on fallback-only mode in production
+
+### Port already in use
+
+If port 8001 is busy:
+
+```powershell
+uv run uvicorn src.api:app --host 127.0.0.1 --port 8002
+```
+
+### Chroma index stale or missing
+
+Rebuild the index:
+
+```powershell
+uv run python src/ingest.py
+```
+
+## Recommended workflow
+
+For local development:
+
+1. keep cloud keys blank if you want to test the local fallback
+2. add your PDFs
+3. build the index
+4. start the app
+5. test a few prompts
+
+For deployment:
+
+1. set a real provider key
+2. keep `APP_ENV=production`
+3. do not depend on a local fallback-only setup in a production environment
+
+## Notes
+
+- PDF files are often excluded from Git because of size limits.
+- This project is meant for research / document-grounded Q&A and should not be treated as a general-purpose web search engine.
+- The local fallback is useful for development, but production should use a proper model backend.
