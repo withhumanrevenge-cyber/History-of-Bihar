@@ -276,21 +276,3 @@ uv run python -c "import os;from dotenv import load_dotenv;load_dotenv();print({
 uv run python -c "import sqlite3,collections;c=sqlite3.connect('.chroma_db/chroma.sqlite3').cursor();c.execute(\"select string_value from embedding_metadata where key='source'\");print(collections.Counter(r[0] for r in c.fetchall()))"
 ```
 
-## Known limitations
-
-- **Latency.** A question takes ~2 minutes. Most of it is CPU cross-encoder reranking and
-  serial model calls; the agent's model node calls `ainvoke()` per turn rather than
-  streaming tokens, so there is a long silence before the first word. Real token streaming
-  is the single biggest improvement available.
-- **Citation groundedness is weak.** The check is vocabulary overlap at a 0.3 threshold — it
-  reliably catches a wildly wrong page, but a closely related one can pass.
-- **OCR quality varies by scan.** High-resolution originals come out clean; lower-resolution
-  ones still produce errors like `shile` for `while`. Good enough for retrieval, rough for
-  direct quotation.
-- **Rate limiting is per-process and in-memory**, so it does not hold across workers. Fine
-  for a single instance; a real deployment needs a shared store.
-- **The local fallback model is not practical** for real answers — it exists so the app
-  starts without credentials.
-
-For the full debugging history — what broke, how each bug was diagnosed, and what was
-considered and rejected — see [DEBUGGING.md](DEBUGGING.md).
