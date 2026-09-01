@@ -7,7 +7,7 @@ against the index before they reach you.
 
 ```
 FastAPI + SSE   ·   Chroma + BM25 hybrid retrieval + cross-encoder rerank
-LangGraph tool-calling agent   ·   RapidOCR pipeline   ·   Next.js frontend
+LangChain tool-calling agent   ·   RapidOCR pipeline   ·   Next.js frontend(with help of claude)
 ```
 
 The goal is simple: answer only from the indexed documents, cite the supporting pages
