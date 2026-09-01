@@ -214,26 +214,6 @@ the wire an idle proxy will drop a connection that is perfectly healthy. Clients
 ignore any frame with no `data:` line, and treat a stream that ends **without** `done` as a
 dropped connection rather than a finished answer.
 
-## Grounding and guardrails
-
-Before the agent runs: a 500-character question cap, a per-IP sliding-window rate limit
-(20/min), and heuristic prompt-injection detection.
-
-After it replies (`_enforce_groundedness` in `src/api.py`):
-
-- every `[source: file, page N]` citation is checked against the live index
-- citations whose page does not exist, or whose claim shares too little vocabulary with
-  that page, are stripped and a `notice` is emitted
-- if no retrieval tool was called at all, the answer is replaced with the fallback
-
-```text
-The literacy rate rose over the reported period [source: report.pdf, page 24].
-```
-
-The cited page is the **PDF page index**, not the number printed in the book — the offset
-varies because of unnumbered plates. It is correct in a PDF viewer, which navigates by
-index.
-
 ## Token budget
 
 Worth understanding before you use the app in earnest, because it is a ceiling rather
