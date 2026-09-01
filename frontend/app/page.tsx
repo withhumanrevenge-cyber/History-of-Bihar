@@ -14,16 +14,25 @@ type Message = {
   role: "user" | "assistant";
   content: string;
   sources?: Source[];
+  notices?: string[];
   streaming?: boolean;
   error?: string;
 };
 
+// Questions the indexed corpus can actually answer. The documents are a history
+// of the Bihar freedom movement plus district gazetteers - they contain no modern
+// census, trade or welfare-scheme data, so prompts about those correctly return
+// "I don't know" and make the app look broken. Each of these was checked against
+// the live index to confirm it retrieves relevant passages.
 const SUGGESTED = [
-  "What is the literacy rate of Bihar according to the census?",
-  "Summarise the state's key agricultural exports.",
-  "Which districts have the highest population density?",
-  "What welfare schemes are highlighted in the reports?",
+  "What role did Kunwar Singh play in the 1857 revolt in Bihar?",
+  "How did the Non-cooperation movement develop in Bihar?",
+  "What were the chief features of rents in the Patna district?",
+  "Which industries and manufactures do the district gazetteers describe?",
 ];
+
+const CONNECTION_LOST =
+  "Connection to the server was lost mid-answer. The request may still be running - try again.";
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -99,6 +108,10 @@ export default function Home() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
+        // The backend always terminates a healthy stream with a `done` event. If
+        // the loop ends without one, the connection was cut mid-answer - report
+        // that rather than the browser's opaque "network error".
+        let sawDone = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -140,6 +153,19 @@ export default function Home() {
                     : msg
                 )
               );
+            } else if (event === "notice") {
+              const message = String(payload.message ?? "");
+              if (message) {
+                setMessages((m) =>
+                  m.map((msg) =>
+                    msg.id === assistantId
+                      ? { ...msg, notices: [...(msg.notices ?? []), message] }
+                      : msg
+                  )
+                );
+              }
+            } else if (event === "usage") {
+              // Token accounting; nothing to render.
             } else if (event === "error") {
               const message = String(payload.message ?? "Unknown error");
               setMessages((m) =>
@@ -150,6 +176,7 @@ export default function Home() {
                 )
               );
             } else if (event === "done") {
+              sawDone = true;
               setMessages((m) =>
                 m.map((msg) =>
                   msg.id === assistantId ? { ...msg, streaming: false } : msg
@@ -158,8 +185,25 @@ export default function Home() {
             }
           }
         }
+
+        if (!sawDone) {
+          throw new Error(CONNECTION_LOST);
+        }
       } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : "Request failed";
+        // Clicking Stop aborts the fetch on purpose - that isn't a failure.
+        if (e instanceof DOMException && e.name === "AbortError") {
+          setMessages((m) =>
+            m.map((x) => (x.id === assistantId ? { ...x, streaming: false } : x))
+          );
+          return;
+        }
+        const raw = e instanceof Error ? e.message : "Request failed";
+        // Chrome reports a severed response body as "network error", Firefox as
+        // "NetworkError when attempting to fetch resource", Safari as "Load
+        // failed". None of those tell the user anything useful.
+        const msg = /network ?error|load failed|fetch/i.test(raw)
+          ? CONNECTION_LOST
+          : raw;
         setError(msg);
         setMessages((m) =>
           m.map((x) =>
@@ -404,6 +448,20 @@ function Bubble({ message }: { message: Message }) {
             <TypingDots />
           ) : null}
         </div>
+
+        {!isUser && message.notices && message.notices.length > 0 && (
+          <ul className="flex max-w-[85%] flex-col gap-1">
+            {message.notices.map((n, i) => (
+              <li
+                key={i}
+                className="flex items-start gap-1.5 text-xs leading-snug text-text-subtle"
+              >
+                <ShieldIcon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{n}</span>
+              </li>
+            ))}
+          </ul>
+        )}
 
         {!isUser && message.sources && message.sources.length > 0 && (
           <Sources sources={message.sources} />
@@ -683,6 +741,25 @@ function UserIcon({ className = "" }: { className?: string }) {
         d="M4 20c1.6-4 5-6 8-6s6.4 2 8 6"
         stroke="currentColor"
         strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function ShieldIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      <path
+        d="M12 3l7 3v5.5c0 4.3-2.9 7.9-7 9.5-4.1-1.6-7-5.2-7-9.5V6l7-3z"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M12 8.5v4M12 15.5v.01"
+        stroke="currentColor"
+        strokeWidth="1.6"
         strokeLinecap="round"
       />
     </svg>

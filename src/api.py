@@ -1,5 +1,7 @@
 import asyncio
+import contextlib
 import json
+import logging
 import re
 import time
 from collections import deque
@@ -10,11 +12,15 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from src.agent import CITATION_RE, NO_CONTEXT_MSG, build_agent, check_citations, detect_injection
 
 
+logger = logging.getLogger(__name__)
+
 state: dict = {}
+_build_lock = asyncio.Lock()
 
 
 @asynccontextmanager
@@ -38,9 +44,30 @@ class Query(BaseModel):
     question: str
 
 
+async def ensure_agent() -> tuple:
+    """Return (agent, chunks), building them if the process doesn't have them yet.
+
+    `build_agent()` is fully synchronous and slow (embeddings, Chroma, BM25 over
+    every chunk, a CrossEncoder load), so it runs in a threadpool rather than
+    blocking the event loop and stalling in-flight SSE streams. The lock stops
+    two concurrent requests from each paying that cost.
+    """
+    if "agent" in state and "chunks" in state:
+        return state["agent"], state["chunks"]
+    async with _build_lock:
+        if "agent" not in state or "chunks" not in state:
+            state["agent"], state["chunks"] = await run_in_threadpool(build_agent)
+    return state["agent"], state["chunks"]
+
+
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "ready": bool(state)}
+    try:
+        agent, _ = await ensure_agent()
+    except Exception:
+        logger.exception("agent build failed during health check")
+        return {"status": "ok", "ready": False}
+    return {"status": "ok", "ready": bool(agent)}
 
 
 MAX_QUESTION_LEN = 500
@@ -68,14 +95,45 @@ def sse(event: str, payload: dict) -> bytes:
     return f"event: {event}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
 
 
-# The agent's model node returns the full final answer in one shot (see chat()
-# below), so this fakes a per-token stream for the UI's typing effect by
-# doling the text out word by word with a small delay between chunks.
-TOKEN_STREAM_DELAY = 0.0
+# An SSE comment frame. Carries no `data:` line, so a spec-compliant client (and
+# our own reader in frontend/app/page.tsx) ignores it - but it puts bytes on the
+# wire, which is what keeps intermediaries from treating the connection as idle.
+HEARTBEAT = b": ping\n\n"
+
+# Sentinel pushed onto the frame queue when the agent task is finished, so the
+# response generator can stop immediately instead of waiting out a heartbeat tick.
+_STREAM_END = object()
+
+HEARTBEAT_SECONDS = 10.0
+
+# Streaming responses must not be buffered or transformed by anything between
+# uvicorn and the browser, or the stream arrives all at once (or not at all).
+SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
+
+TOKEN_STREAM_DELAY = 0.01
 
 
 def _typing_chunks(text: str) -> list[str]:
     return re.findall(r"\S+\s*", text)
+
+
+def _message_text(message) -> str:
+    """Message content as plain text. Most providers give a string, but some
+    return a list of content blocks; downstream code (groundedness, citation
+    masking, chunking) assumes a string."""
+    content = getattr(message, "content", None) or ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "".join(
+            block.get("text", "") if isinstance(block, dict) else str(block)
+            for block in content
+        )
+    return str(content)
 
 
 # Tools whose JSON output contains retrieved passages worth surfacing as sources.
@@ -185,15 +243,21 @@ async def chat(q: Query, request: Request):
                 yield sse("token", {"text": piece})
             yield sse("done", {})
 
-        return StreamingResponse(refuse(), media_type="text/event-stream")
+        return StreamingResponse(refuse(), media_type="text/event-stream", headers=SSE_HEADERS)
 
-    agent = state["agent"]
-    chunks = state["chunks"]
+    agent, chunks = await ensure_agent()
 
-    async def stream() -> AsyncIterator[bytes]:
+    async def produce(queue: asyncio.Queue) -> None:
+        """Run the agent, pushing ready-to-send SSE frames onto `queue`.
+
+        Kept separate from the response generator so the generator stays free to
+        emit heartbeats while this is blocked on a slow model or tool call.
+        """
         seen: set[tuple] = set()
         sources: list[dict] = []
         usage_emitted = False
+        answered = False
+        last_model_text = ""
         try:
             # create_agent's model node calls the LLM with a single ainvoke() per
             # turn rather than streaming tokens, so "updates" mode gives us one
@@ -220,22 +284,77 @@ async def chat(q: Query, request: Request):
                                 sources.append({"id": len(sources) + 1, **passage})
                                 added = True
                             if added:
-                                yield sse("sources", {"sources": sources})
-                        elif node_name == "model" and not getattr(message, "tool_calls", None):
-                            text = getattr(message, "content", None) or ""
+                                await queue.put(sse("sources", {"sources": sources}))
+                        elif node_name == "model":
                             usage = _extract_usage(message)
                             if usage and not usage_emitted:
                                 usage_emitted = True
-                                yield sse("usage", usage)
+                                await queue.put(sse("usage", usage))
 
-                            text, notices = _enforce_groundedness(text, sources, chunks)
+                            text = _message_text(message)
+                            if getattr(message, "tool_calls", None):
+                                # A tool-calling turn. Any prose on it is the model's
+                                # reasoning, not the answer - but hold on to it in case
+                                # the run ends before a final turn ever arrives.
+                                if text.strip():
+                                    last_model_text = text
+                                continue
+
+                            text, notices = await run_in_threadpool(
+                                _enforce_groundedness, text, sources, chunks
+                            )
                             for notice in notices:
-                                yield sse("notice", {"message": notice})
+                                await queue.put(sse("notice", {"message": notice}))
                             for piece in _typing_chunks(text):
-                                yield sse("token", {"text": piece})
+                                await queue.put(sse("token", {"text": piece}))
                                 await asyncio.sleep(TOKEN_STREAM_DELAY)
+                            if text.strip():
+                                answered = True
+
+            if not answered:
+                logger.warning(
+                    "agent produced no final answer (%d sources, %d chars of interim text)",
+                    len(sources), len(last_model_text),
+                )
+                await queue.put(sse("notice", {
+                    "message": "The agent reached its tool/model call limit before "
+                               "finishing an answer. Try a narrower question.",
+                }))
+                fallback = last_model_text.strip() or NO_CONTEXT_MSG
+                for piece in _typing_chunks(fallback):
+                    await queue.put(sse("token", {"text": piece}))
+                    await asyncio.sleep(TOKEN_STREAM_DELAY)
+        except asyncio.CancelledError:
+            raise
         except Exception as exc:
-            yield sse("error", {"message": str(exc)})
+            logger.exception("chat stream failed")
+            queue.put_nowait(sse("error", {"message": f"{type(exc).__name__}: {exc}"}))
+        finally:
+            # Unbounded queue, so this never blocks - safe even while unwinding
+            # from a cancellation.
+            queue.put_nowait(_STREAM_END)
+
+    async def stream() -> AsyncIterator[bytes]:
+        queue: asyncio.Queue = asyncio.Queue()
+        producer = asyncio.create_task(produce(queue))
+
+        # Open with a heartbeat so the client sees bytes immediately, then keep
+        # pinging during the long silences between agent steps.
+        yield HEARTBEAT
+        try:
+            while True:
+                try:
+                    frame = await asyncio.wait_for(queue.get(), timeout=HEARTBEAT_SECONDS)
+                except asyncio.TimeoutError:
+                    yield HEARTBEAT
+                    continue
+                if frame is _STREAM_END:
+                    break
+                yield frame
+        finally:
+            producer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await producer
         yield sse("done", {})
 
-    return StreamingResponse(stream(), media_type="text/event-stream")
+    return StreamingResponse(stream(), media_type="text/event-stream", headers=SSE_HEADERS)

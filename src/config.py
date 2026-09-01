@@ -20,3 +20,4 @@ if GROQ_API_KEY:
     print("Groq API Key loaded successfully!")
 else:
     print("Error: GROQ_API_KEY is empty")
+    

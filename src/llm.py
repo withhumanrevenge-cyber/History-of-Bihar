@@ -6,10 +6,10 @@ load_dotenv()
 
 HF_ROUTER_URL = "https://router.huggingface.co/v1"
 GROQ_API_URL = "https://api.groq.com/openai/v1"
-# Default to a Llama model for generation so the app answers with the model family
-# you requested unless an environment override is provided.
+# Default to a valid Groq model for generation. Keep this aligned with the model
+# names Groq actually exposes, otherwise requests fail with 404s.
 HF_CHAT_MODEL = os.getenv("HF_CHAT_MODEL", "meta-llama/Llama-3.3-70B-Instruct")
-GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "llama-3.3-70b-versatile")
+GROQ_CHAT_MODEL = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-20b")
 LLAMA_CHAT_MODEL = os.getenv("LLAMA_CHAT_MODEL", "llama-3.3-70b-instruct")
 LOCAL_FALLBACK_MODEL = os.getenv("LOCAL_FALLBACK_MODEL", "Qwen/Qwen2.5-1.5B-Instruct")
 
@@ -78,7 +78,7 @@ def get_llm():
 
     pipe = HuggingFacePipeline.from_model_id(
         model_id=LOCAL_FALLBACK_MODEL,
-        task="chat-generation",
+        task="text-generation",
         pipeline_kwargs={"max_new_tokens": 400, "temperature": 0.3, "top_p": 0.9},
     )
     return ChatHuggingFace(llm=pipe)

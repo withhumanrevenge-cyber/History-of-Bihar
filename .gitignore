@@ -16,3 +16,7 @@ wheels/
 
 # Source documents are supplied locally; some exceed GitHub's file limit
 data/*.pdf
+
+.ocr_cache/
+
+DEBUGGING.md

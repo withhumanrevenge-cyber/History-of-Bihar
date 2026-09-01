@@ -75,6 +75,12 @@ def check_citations(draft_answer: str, chunks) -> list[dict]:
     the live document index: confirms the cited source/page pair exists and that
     the sentence's key terms actually appear on that page. Shared by the
     `verify_citations` tool and by the API layer's post-hoc groundedness check."""
+
+    by_page: dict[tuple[str, str], object] = {}
+    for c in chunks:
+        key = (c.metadata.get("source"), str(c.metadata.get("page")))
+        by_page.setdefault(key, c)
+
     findings = []
     for sentence in re.split(r"(?<=[.!?])\s+", draft_answer.strip()):
         if not sentence.strip():
@@ -85,10 +91,7 @@ def check_citations(draft_answer: str, chunks) -> list[dict]:
             continue
         for source, page in citations:
             source, page = source.strip(), page.strip()
-            match = next(
-                (c for c in chunks if c.metadata.get("source") == source and str(c.metadata.get("page")) == page),
-                None,
-            )
+            match = by_page.get((source, page))
             if match is None:
                 findings.append({
                     "claim": sentence, "cited": True, "source": source, "page": page,
@@ -108,18 +111,24 @@ SYSTEM_PROMPT = """You are a research assistant answering questions about Bihar
 using only the indexed PDF collection (history, census, and statistical reports).
 
 Tool guidance:
-- classify_intent: call first when the shape of the question is unclear.
-- search_documents: the default, primary tool for factual lookups.
-- search_by_topic: prefer this over search_documents when the question names a
-  specific topic (agriculture, population, literacy, welfare, geography, history).
-- compare_documents: use for any question comparing two or more subjects, years,
-  districts, or regions.
-- extract_statistics: run on retrieved passages before doing arithmetic or ranking.
+Budget: you have at most a handful of tool calls per question, so go straight to
+retrieval and answer as soon as you have enough passages. Do not chain tools
+"just to be thorough" - an answer from two good searches beats no answer at all.
+
+Pick ONE retrieval tool to start with:
+- search_by_topic: when the question names a specific topic (agriculture,
+  population, literacy, welfare, geography, history).
+- compare_documents: when comparing two or more subjects, years, districts, or regions.
+- build_timeline: for questions about chronology, dynasties, or events over time.
+- search_documents: the default for everything else.
+
+Then answer. Only reach for a second tool if the first returned nothing useful:
+- extract_statistics: only before arithmetic or ranking over retrieved passages.
 - calculate: use for every percentage, growth rate, difference, average, sum, or
   ranking - never compute arithmetic yourself.
-- build_timeline: use for questions about chronology, dynasties, or events over time.
-- verify_citations: run on your draft answer before replying whenever it contains
-  [source: ..., page ...] citations.
+- classify_intent: only when you genuinely cannot tell what is being asked.
+- verify_citations: rarely needed - the API verifies every citation against the
+  index after you reply, so do not spend a call on it routinely.
 
 Rules:
 - Answer ONLY from retrieved context. If nothing relevant is found, reply exactly:
