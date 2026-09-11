@@ -16,9 +16,7 @@ inline, and say "I don't know" rather than guess.
 ## Why this project exists
 
 This app is a side project of mine where i was experimenting and exploring with rag
-architectures, guardrails, middlewares and better llms for generation , i created the
-frontend with help of claude and other resources that i have (not so fond of frontend
-work). explore the codebase or application , i would love any feedback .
+architectures, guardrails, middlewares and better llms for generation. explore the codebase or application , i would love any feedback .
 
 It reduces hallucinations by:
 
@@ -256,3 +254,11 @@ uv run python -c "import os;from dotenv import load_dotenv;load_dotenv();print({
 uv run python -c "import sqlite3,collections;c=sqlite3.connect('.chroma_db/chroma.sqlite3').cursor();c.execute(\"select string_value from embedding_metadata where key='source'\");print(collections.Counter(r[0] for r in c.fetchall()))"
 ```
 
+## Evaluation
+
+Evaluation harness is implemented in `evals/`.
+Full evaluation pending — at 24,000 tokens per run the free
+Groq tier (200K tokens/day) allows ~8 runs, which is
+insufficient for a meaningful golden dataset.
+Groundedness and citation verification are enforced
+architecturally on every query regardless.
